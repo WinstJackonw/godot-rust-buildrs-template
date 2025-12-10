@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::env::current_dir;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -36,11 +37,9 @@ fn main() {
     let lib_name = format!("{}{}.{}", lib_prefix, "rust", lib_extension);
     let output_dir = env::var("OUT_DIR").unwrap();
     let output_dir = Path::new(&output_dir);
-    print!("output_dir: {}", output_dir.to_str().unwrap());
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let godot_project_dir = Path::new(&manifest_dir).parent().unwrap();
-    print!("manifest_dir: {}", godot_project_dir.to_str().unwrap());
-    let relative_dir = output_dir.strip_prefix(godot_project_dir).unwrap();
+    let godot_project_dir = find_godot_project_dir().unwrap();
+    println!("godot_project_dir: {:?}", godot_project_dir);
+    let relative_dir = output_dir.strip_prefix(&godot_project_dir).unwrap();
     let mut components: Vec<_> = relative_dir.components().collect();
     if let Some(index) = components.iter().position(|c| {
         let s = c.as_os_str().to_string_lossy();
@@ -61,8 +60,9 @@ fn main() {
         _ => format!("{}.{}.{}", target_os, profile, target_arch),
     };
 
-    let godot_project_dir = Path::new(&manifest_dir).parent().unwrap();
-    let gdextension_file_path = godot_project_dir.join("rust").join("rust.gdextension");
+    let manifest_dir_owned = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let manifest_dir = Path::new(&manifest_dir_owned);
+    let gdextension_file_path = manifest_dir.join("rust.gdextension");
     if is_needing_updation(&gdextension_file_path, &godot_triplet, &lib_path) {
         println!("Generating rust.gdextension for {}", godot_triplet);
         generate_gdextension_file(&gdextension_file_path, &godot_triplet, &lib_path);
@@ -70,6 +70,19 @@ fn main() {
         println!("rust.gdextension is up to date for {}", godot_triplet);
     }
     println!("cargo::rerun-if-changed=Cargo.toml");
+}
+
+fn find_godot_project_dir() -> Option<PathBuf> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
+    let mut res_dir = PathBuf::from(&manifest_dir);
+    loop {
+        if res_dir.join("project.godot").exists() {
+            return Some(res_dir);
+        }
+        if !res_dir.pop() {
+            return None;
+        }
+    }
 }
 
 fn is_needing_updation(
